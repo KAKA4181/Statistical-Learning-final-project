@@ -1,0 +1,249 @@
+---
+title: "absolute final version"
+author: "Chujun Chen"
+date: "5/2/2018"
+output: pdf_document
+---
+
+```{r Load Data}
+library(rminer)
+bank=read.table("/Users/chujunchen/Desktop/COLUMBIA/Statistical_Learning/project/bank-additional/bank-additional-full.csv",sep=";",header=TRUE)
+bank[bank=="unknown"] <- NA #replace 'unknown' with 'N/A'
+print(class(bank)) # show class
+print(names(bank)) # show attributes
+```
+
+```{r Split data1:unbalance}
+bank$y<-ifelse(bank$y =='yes', 1,0) #mark y=yes as 1 and y=no as 0
+bank$y<-as.factor(bank$y)
+## choose 2/3 of the data as training data
+smp_size <- floor(0.67 * nrow(bank))
+## set the seed to make your partition reproductible
+set.seed(123)
+##Produce training dataset and testing dataset
+train_ind <- sample(seq_len(nrow(bank)), size = smp_size)
+train <- bank[train_ind, ]
+test <- bank[-train_ind, ]
+```
+
+
+```{r DT with package rpart}
+library(rpart)
+library(rattle)
+#train decision tree model with training data
+bank.rpart <- rpart(y ~ ., data = train)
+#plot decision tree
+fancyRpartPlot(bank.rpart)
+#predict basing on testing data, set the type as 'classification'
+predictions <- predict(bank.rpart, test, type = "class")
+#produce confusion matrix
+confusion.matrix <- prop.table(table(predictions, test$y))
+#show accuracy of the prediction
+accuracy <- confusion.matrix[1,1] + confusion.matrix[2,2] 
+accuracy
+```
+
+```{r Data Process:transform character feature into numeric feature}
+##Assign code to different kind of character features and set them as numeric
+bank$job = c('admin.'=1,'blue-collar'=2,'entrepreneur'=3,'housemaid'=4,'management'=5,'retired'=6,'self-employed'=7,'services'=9,'student'=9,'technician'=10,'unemployed'=0)[ as.numeric(bank$job)]
+bank$marital=c('single'=1,'married'=2,'divorced'=3)[ as.numeric(bank$marital)]
+bank$education=c('basic.4y'=1,'basic.6y'=2,'basic.9y'=3,'high.school'=4,'illiterate'=0,'university.degree'=5,'professional.course'=6)[ as.numeric(bank$education)]
+bank$default<-ifelse(bank$default =='yes', 1,0)
+bank$housing<-ifelse(bank$housing=="yes",1,0)
+bank$loan<-ifelse(bank$loan=='yes',1,0)
+bank$contact<-ifelse(bank$contact=='cellular',1,0)
+bank$month=c('apr'=4,'may'=5,'aug'=8,'dec'=12,'jul'=7,'jun'=5,'mar'=3,'sep'=9,'oct'=10,'nov'=11)[ as.numeric(bank$month)]
+bank$day_of_week=c('mon'=1,'tue'=2,'wed'=3,'thu'=4,'fri'=5)[as.numeric(bank$day_of_week)]
+bank$poutcome=c('nonexistent'=0,'failure'=-1,'success'=1)[as.numeric(bank$poutcome)]
+summary(bank)
+```
+
+```{r Data Process2: eliminate N/A feature value}
+print(summary(bank$education))
+meanage=mean(bank$education,na.rm=TRUE)
+# subsitute NA by the average value
+bank2=imputation("value",bank,"education",Value=meanage)
+print("mean imputation age summary:")
+print(summary(bank2$education))
+# substitute NA values by the most common value of bank$job
+print("original job summary:")
+print(summary(bank$job))
+bank2=imputation("value",bank2,"job",Value=as.numeric(names(which.max(table(bank$job)))))
+print("mode imputation job summary:")
+print(summary(bank2$job))
+
+print("original marital summary:")
+print(summary(bank$marital))
+bank2=imputation("value",bank2,"marital",Value=as.numeric(names(which.max(table(bank$marital)))))
+
+bank2=imputation("value",bank2,"default",Value=as.numeric(names(which.max(table(bank$default)))
+))
+
+bank2=imputation("value",bank2,"housing",Value=as.numeric(names(which.max(table(bank$housing)))
+))
+
+bank2=imputation("value",bank2,"loan",Value=as.numeric(names(which.max(table(bank$loan)))
+))
+
+summary(bank2)
+```
+
+```{r Split data2:balance split}
+library(dplyr)
+#choose data whose y=1
+one<-filter(bank2,y==1)
+#choose data whose y=0
+zero<-filter(bank2,y==0)
+#Because data whose y=1 is much less than data whose y=0, to make both class of data have the same proportion in the training data set, we have to set the sample size basing on the ones'size.
+smp_size <- floor(0.67 * nrow(one))
+test_size <- floor(0.33 * nrow(one))
+set.seed(100)
+train_ind1 <- sample(seq_len(nrow(one)), size = smp_size)
+train_ind0 <- sample(seq_len(nrow(zero)),size = smp_size)
+#produce testing data whose labbel is y=0
+test_ind <- sample(seq_len(nrow(zero[-train_ind0,])), size = test_size)
+#combine data from different classes to generate training dataset and testing dataset
+train<-rbind(one[train_ind1,],zero[train_ind0,])
+test<-rbind(one[-train_ind1,],zero[test_ind,])
+
+```
+
+```{r model training}
+library(rminer)
+#train 4 different models with normalized inputs and set the type as classification
+M1=fit(y~.,train,model="dt",scale="inputs",task="c")
+M2=fit(y~.,train,model="ksvm",scale="inputs",task="c")
+M3=fit(y~.,train,model="naiveBayes",scale="inputs",task="c")
+M4=fit(y~.,train,model="lr",scale="inputs",task="c")
+#output the importance of each attribute basing on each model
+library(ggplot2)
+nb.imp <- Importance(M1,train,task='c')
+dt.imp <- Importance(M2,train,task='c')
+svm.imp <- Importance(M3,train,task='c')
+lr.imp <- Importance(M4,train,task='c')
+```
+
+```{r plot attribute importance}
+x<-names(train)
+
+#attribute importance on DT
+y<-dt.imp$imp
+df <- data.frame(x= x, y = y) 
+ggplot(data = df, mapping = aes(x = reorder(x, y), y =  y,fill= y),main='') + labs(title="DT") +
+        geom_bar(stat= 'identity')+  
+        geom_text(label=y,colour = "black", vjust=00)+coord_flip()+  
+        labs(x="x",y="y")
+#attribute importance on SVM
+y<-svm.imp$imp
+df <- data.frame(x= x, y = y) 
+ggplot(data = df, mapping = aes(x = reorder(x, y), y =  y,fill= y),main='') + labs(title="SVM")+
+        geom_bar(stat= 'identity')+  
+        geom_text(label=y,colour = "black", vjust=00)+coord_flip()+  
+        labs(x="x",y="y")
+#attribute importance on NB
+y<-nb.imp$imp
+df <- data.frame(x= x, y = y) 
+ggplot(data = df, mapping = aes(x = reorder(x, y), y =  y,fill= y),main='') +labs(title="NB")+
+        geom_bar(stat= 'identity')+  
+        geom_text(label=y,colour = "black", vjust=00)+coord_flip()+  
+        labs(x="x",y="y")
+#attribute importance on LR
+y<-lr.imp$imp
+df <- data.frame(x= x, y = y) 
+ggplot(data = df, mapping = aes(x = reorder(x, y), y =  y,fill= y),main='') + labs(title="LR")+
+        geom_bar(stat= 'identity')+  
+        geom_text(label=y,colour = "black", vjust=00)+coord_flip()+  
+        labs(x="x",y="y")
+```
+
+
+
+
+```{r Result Analysis}
+library(rminer)
+print("DT")
+#Do prediction given testing data
+P1=predict(M1,test)
+#show accuracy of DT
+print(mmetric(test$y,P1,"ACC"))
+#Show confusion matrix of DT
+print(mmetric(test$y,P1,"CONF"))
+
+print("SVM")
+P2=predict(M2,test)
+print(mmetric(test$y,P2,"ACC"))
+print(mmetric(test$y,P2,"CONF"))
+
+print("NB")
+P3=predict(M3,test)
+print(mmetric(test$y,P3,"ACC"))
+print(mmetric(test$y,P3,"CONF"))
+
+print("LR")
+P4=predict(M4,test)
+print(mmetric(test$y,P4,"ACC"))
+print(mmetric(test$y,P4,"CONF"))
+```
+
+```{r Holdout testing}
+#combine training data and testing data together to get a larger dataset
+bank3=rbind(train,test)
+#select attributes with largest importance
+col_dt=c('duration','nr.employed','y')
+#filter data to get the attributes we care
+bank_dt=bank3[,col_dt]
+#training and testing model with 2/3 of data holdout for testing, the same process will be repeated 20 times and the average result will be output
+M1_=mining(y~.,bank_dt,method=c("holdout",2/3),model="dt",Runs=20)
+
+col_svm=c('poutcome','pdays','previous','duration','age','y')
+bank_svm=bank3[,col_svm]
+M2_=mining(y~.,bank_svm,method=c("holdout",2/3),model="ksvm",Runs=20)
+
+col_nb=c('nr.employed','emp.var.rate','duration','y')
+bank_nb=bank3[,col_nb]
+M3_=mining(y~.,bank_nb,method=c("holdout",2/3),model="naiveBayes",Runs=20)
+
+col_lr=c('poutcome','euribor3m','emp.var.rate','education','contact','cons.price.idx','previous','nr.employed','marital','campaign','pdays','month','duration','age')
+bank_lr=bank3[,col_lr]
+M4_=mining(y~.,bank_dt,method=c("holdout",2/3),model="lr",Runs=20)
+
+#compine results together and plot ROC curve and LIFT curve
+L=vector("list",4); L[[1]]=M1_; L[[2]]=M2_;L[[3]]=M3_; L[[4]]=M4_; 
+mgraph(L,graph="ROC",leg=c("DT","SVM","NB","LR"),baseline=TRUE,Grid=10,
+       main="ROC")
+mgraph(L,graph="LIFT",leg=c("DT","SVM","NB","LR"),
+       baseline=TRUE,Grid=10,main="LIFT")
+```
+
+```{r running time}
+#return the total time consumed on the trainng and testing for 20 runs
+print('DT')
+print (sum(M1_$time))
+print('SVM')
+print (sum(M2_$time))
+print('NB')
+print (sum(M3_$time))
+print('LR')
+print (sum(M4_$time))
+
+```
+
+```{r area under curve calculated}
+#show AUC and ALIFT values for each model, the results are the average value of 20 runs
+print('DT')
+mmetric(M1_,metric="AUC",aggregate="mean")
+mmetric(M1_,metric="ALIFT",aggregate="mean")
+print('SVM')
+mmetric(M2_,metric="AUC",aggregate="mean")
+mmetric(M2_,metric="ALIFT",aggregate="mean")
+print('NB')
+mmetric(M3_,metric="AUC",aggregate="mean")
+mmetric(M3_,metric="ALIFT",aggregate="mean")
+print('LR')
+mmetric(M4_,metric="AUC",aggregate="mean")
+mmetric(M4_,metric="ALIFT",aggregate="mean")
+```
+
+```{r show attributes}
+names(bank)
+```
