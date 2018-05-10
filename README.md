@@ -1,6 +1,9 @@
 ## Data Mining on Bank Direct Marketing
 ### Introduction:
-This is a self-constructed neural network (1-hidden-layer and 2-hidden-layers) without using any framework, such as Pytorch, Tensorflow and etc. This model is based on classic hand-written digits dataset MNIST.
+This is the final project of EE6690:Statistical Learning. 
+## Author:
+Chujun Chen  
+Lanruo Zhang
 ### Requirement:
 R
 ## Dataset:
